@@ -140,13 +140,13 @@ confs = {
 
 def resize_image(image, size, interp):
     if interp.startswith("cv2_"):
-        interp = getattr(cv2, "INTER_" + interp[len("cv2_") :].upper())
+        interp = getattr(cv2, "INTER_" + interp[len("cv2_"):].upper())
         h, w = image.shape[:2]
         if interp == cv2.INTER_AREA and (w < size[0] or h < size[1]):
             interp = cv2.INTER_LINEAR
         resized = cv2.resize(image, size, interpolation=interp)
     elif interp.startswith("pil_"):
-        interp = getattr(PIL.Image, interp[len("pil_") :].upper())
+        interp = getattr(PIL.Image, interp[len("pil_"):].upper())
         resized = PIL.Image.fromarray(image.astype(np.uint8))
         resized = resized.resize(size, resample=interp)
         resized = np.asarray(resized, dtype=image.dtype)
@@ -159,6 +159,7 @@ class ImageDataset(torch.utils.data.Dataset):
     default_conf = {
         "globs": ["*.jpg", "*.png", "*.jpeg", "*.JPG", "*.PNG"],
         "grayscale": False,
+        "to_grayscale": False,
         "resize_max": None,
         "resize_force": False,
         "interpolation": "cv2_area",  # pil_linear is more accurate but slower
@@ -192,11 +193,19 @@ class ImageDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         name = self.names[idx]
         image = read_image(self.root / name, self.conf.grayscale)
+        if self.conf.to_grayscale:
+            # convert image to grayscale
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+            # convert the single channel image array to 3 channel
+            image = np.dstack([image, image, image])
+            # check the shape of the image array
+            assert image.shape[2] == 3
+
         image = image.astype(np.float32)
         size = image.shape[:2][::-1]
 
         if self.conf.resize_max and (
-            self.conf.resize_force or max(size) > self.conf.resize_max
+                self.conf.resize_force or max(size) > self.conf.resize_max
         ):
             scale = self.conf.resize_max / max(size)
             size_new = tuple(int(round(x * scale)) for x in size)
@@ -220,13 +229,13 @@ class ImageDataset(torch.utils.data.Dataset):
 
 @torch.no_grad()
 def main(
-    conf: Dict,
-    image_dir: Path,
-    export_dir: Optional[Path] = None,
-    as_half: bool = True,
-    image_list: Optional[Union[Path, List[str]]] = None,
-    feature_path: Optional[Path] = None,
-    overwrite: bool = False,
+        conf: Dict,
+        image_dir: Path,
+        export_dir: Optional[Path] = None,
+        as_half: bool = True,
+        image_list: Optional[Union[Path, List[str]]] = None,
+        feature_path: Optional[Path] = None,
+        overwrite: bool = False,
 ) -> Path:
     logger.info(
         "Extracting local features with configuration:" f"\n{pprint.pformat(conf)}"
